@@ -1,0 +1,253 @@
+#!/Library/Frameworks/Python.framework/Versions/2.7/bin/python
+# -*- coding: UTF-8 -*-
+
+import sys
+import socket
+from UserHTMLParser import UserHTMLParser
+from SecretFlagHTMLParser import SecretFlagHTMLParser
+
+host = "cs5700f18.ccs.neu.edu"
+port = 80
+initial_get_path = "/accounts/login/?next=/fakebook/"
+post_path = "/accounts/login/"
+get_path = "/fakebook/"
+
+pages_parser = UserHTMLParser()
+flag_parser = SecretFlagHTMLParser()
+
+username = ""
+password = ""
+csrf = ""
+sessionid = ""
+next = "%2Ffakebook%2F"
+
+pages = []
+visited_pages = {}
+secret_flags = {}
+final_secret_flags = []
+
+CRLF = "\r\n"
+
+if len(sys.argv) == 3:
+    username = sys.argv[1]
+    password = sys.argv[2]
+else:
+    assert False
+
+initial_get_msg = "GET {initial_get_path} HTTP/1.1{CRLF}" \
+      "From: sun.xian@husky.neu.edu{CRLF}" \
+      "Host: {host}{CRLF}" \
+      "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36{CRLF}" \
+      "Cache-Control: max-age=0{CRLF}" \
+      "Upgrade-Insecure-Requests: 1{CRLF}" \
+      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8{CRLF}" \
+      "Connection: close{CRLF}{CRLF}"
+
+post_msg = "POST {post_path} HTTP/1.1{CRLF}" \
+      "From: sun.xian@husky.neu.edu{CRLF}" \
+      "Host: {host}{CRLF}" \
+      "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36{CRLF}" \
+      "Content-Type: application/x-www-form-urlencoded{CRLF}" \
+      "Content-Length: 109{CRLF}" \
+      "Cookie: csrftoken={csrf}; sessionid={sid}{CRLF}" \
+      "Cache-Control: max-age=0{CRLF}" \
+      "Origin: http://cs5700f18.ccs.neu.edu{CRLF}" \
+      "Upgrade-Insecure-Requests: 1{CRLF}" \
+      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8{CRLF}" \
+      "Connection: close{CRLF}{CRLF}" \
+      "username={username}&password={password}&csrfmiddlewaretoken={csrf}&next={next}{CRLF}"
+
+get_msg = "GET {get_path} HTTP/1.1{CRLF}" \
+      "From: sun.xian@husky.neu.edu{CRLF}" \
+      "Host: {host}{CRLF}" \
+      "Cache-Control: max-age=0{CRLF}" \
+      "Upgrade-Insecure-Requests: 1{CRLF}" \
+      "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36{CRLF}" \
+      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8{CRLF}" \
+      "Cookie: csrftoken={csrf}; sessionid={sid}{CRLF}" \
+      "Connection: close{CRLF}{CRLF}"
+
+#################################  ---  #################################
+# 1st connect to host to retrieve CSRF token
+#################################  ---  #################################
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((host, port))
+s.send(initial_get_msg.format(initial_get_path=initial_get_path, CRLF=CRLF, host=host))
+
+# receive from login
+buffer = []
+while True:
+    # 每次最多接收1k字节:
+    d = s.recv(1024)
+    if d:
+        buffer.append(d)
+    else:
+        break
+data = ''.join(buffer)
+
+header, html = data.split('\r\n\r\n', 1)
+header_data_list = header.split('\r\n')
+for header_data in header_data_list:
+    if "Set-Cookie: csrftoken" in header_data:
+        index_of_first_equal = header_data.index("=")
+        index_of_first_semicolon = header_data.index(";")
+        csrf = header_data[index_of_first_equal+1 : index_of_first_semicolon]
+    if "Set-Cookie: sessionid" in header_data:
+        index_of_first_equal = header_data.index("=")
+        index_of_first_semicolon = header_data.index(";")
+        sessionid = header_data[index_of_first_equal+1 : index_of_first_semicolon]
+
+s.close()
+
+#################################  ---  #################################
+# 2nd connect to get the real session id
+#################################  ---  #################################
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((host, port))
+s.send(post_msg.format(post_path=post_path, CRLF=CRLF, host=host, csrf=csrf, sid=sessionid,
+                username=username, password=password, next=next))
+
+# receive from login
+buffer = []
+while True:
+    # 每次最多接收1k字节:
+    d = s.recv(1024)
+    if d:
+        buffer.append(d)
+    else:
+        break
+data = ''.join(buffer)
+
+header = data.split('\r\n\r\n', 1)[0]
+header_data_list = header.split('\r\n')
+for header_data in header_data_list:
+    if "Set-Cookie: sessionid" in header_data:
+        index_of_first_equal = header_data.index("=")
+        index_of_first_semicolon = header_data.index(";")
+        sessionid = header_data[index_of_first_equal+1 : index_of_first_semicolon]
+
+s.close()
+
+#################################  ---  #################################
+# 3rd connect to get the pages
+#################################  ---  #################################
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect((host, port))
+s.send(get_msg.format(get_path=get_path, CRLF=CRLF, host=host, csrf=csrf, sid=sessionid))
+
+# receive from login
+buffer = []
+while True:
+    # 每次最多接收1k字节:
+    d = s.recv(1024)
+    if d:
+        buffer.append(d)
+    else:
+        break
+data = ''.join(buffer)
+header, html = data.split('\r\n\r\n', 1)
+visited_pages['/fakebook/'] = True
+
+pages_parser.feed(html)
+for page in pages_parser.pages:
+    if visited_pages.has_key(page) == False:
+        visited_pages[page] = True
+        temp_page = '%s' % page
+        pages.append(temp_page)
+
+pages_parser.reset()
+s.close()
+
+#################################  ---  #################################
+# 4th loop all pages and find secret_flag
+#################################  ---  #################################
+number = 1
+while len(secret_flags) < 5 and len(pages) > 0:
+    print "----------------------------------------------------"
+    print "while loop ", number, " socket"
+    target_path = pages[0]
+    print "target page: ", target_path
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.connect((host, port))
+        s.send(get_msg.format(get_path=target_path, CRLF=CRLF, host=host, csrf=csrf, sid=sessionid))
+    except:
+        try:
+            s.close()
+        except:
+            pass
+        continue
+
+    buffer = []
+    while True:
+        d = s.recv(1024)
+        if d:
+            buffer.append(d)
+        else:
+            break
+    data = ''.join(buffer)
+    status_code = data.split('\r\n')[0].split(" ")[1].strip()
+
+    if status_code == "403" or status_code == "404":
+        number = number + 1
+        del(pages[0])
+        s.close()
+        continue
+    elif status_code == "500":
+        number = number + 1
+        s.close()
+        continue
+    elif status_code == "301":
+        number = number + 1
+        del(pages[0])
+        redirect_target_page = ""
+        header_data_list = data.split('\r\n')
+        for header_data in header_data_list:
+            if "Location: " in header_data:
+                index_of_first_fake = header_data.index("fake")
+                redirect_target_page = header_data[index_of_first_fake-1:]
+
+        if visited_pages.has_key(redirect_target_page) == False:
+            visited_pages[redirect_target_page] = True
+            temp_page = '%s' % redirect_target_page
+            pages.insert(0, temp_page)
+
+        s.close()
+        continue
+
+    header, html = data.split('\r\n\r\n', 1)
+    visited_pages[target_path] = True
+
+    flag_parser.feed(html)
+    if flag_parser.secret_flag != "":
+        new_secret_flag = '%s' % flag_parser.secret_flag
+        if secret_flags.has_key(new_secret_flag) == False:
+            print "#######################"
+            print "secret flag: ", new_secret_flag
+            print "#######################"
+            secret_flags[new_secret_flag] = True
+    flag_parser.reset()
+
+    pages_parser.feed(html)
+    for page in pages_parser.pages:
+        if visited_pages.has_key(page) == False:
+            visited_pages[page] = True
+            temp_page = '%s' % page
+            pages.append(temp_page)
+    pages_parser.reset()
+
+    del(pages[0])
+    s.close()
+    number = number + 1
+
+
+final_secret_flags = secret_flags.keys()
+print "-------------------------------  ### -------------------------------"
+print "-------------------------------  ### -------------------------------"
+print "-------------------------------  ### -------------------------------"
+for single_secret_flag in final_secret_flags:
+    print single_secret_flag
+print "-------------------------------  ### -------------------------------"
+print "-------------------------------  ### -------------------------------"
