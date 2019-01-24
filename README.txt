@@ -28,16 +28,3 @@ It may take like 60 seconds to wait until the error is arised and be thrown, but
 Overview of How You Tested Your Code
 1st. Tried different arguments on command lines
 2nd. Handle error status code
-
-
-detailed description of which student work on what?
-Xiangshi Sun:
-POST request message, GET request message
-Retrieve CSRF token
-Login
-BFS algorithms
-
-Zhengda Wu:
-initial GET request message, 2 HTMLParsers
-HTML feed
-deal with error status code in BFS algorithm
